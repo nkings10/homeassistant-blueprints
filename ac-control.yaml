@@ -93,7 +93,7 @@ trigger:
 variables:
   ac_entity: !input ac_entity
   temp_entity: !input temp_sensor
-  use_internal_sensor: "{{ !temp_entity }}"
+  use_internal_sensor: "{{ not temp_entity or temp_entity == '' }}"
   
   # Get the current temperature based on sensor selection
   current_temp: >
