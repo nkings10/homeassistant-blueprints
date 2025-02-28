@@ -9,7 +9,6 @@ blueprint:
       selector:
         entity:
           domain: climate
-      required: true
     anti_melt_threshold:
       name: "Anti-Melt Threshold"
       description: "Temperature at which Anti-Melt Mode activates"
