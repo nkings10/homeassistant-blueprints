@@ -40,7 +40,6 @@ blueprint:
           step: 0.5
           unit_of_measurement: °C
       default: 26
-
     ac_mode:
       name: "AC Mode"
       description: "Mode to set when turning on the AC"
@@ -79,86 +78,82 @@ trigger:
     event: start
 
 action:
-  # First, check if AC is in "comfort mode" (manually set to a cool temperature)
-  - alias: "Check if in comfort mode"
-    condition: template
-    value_template: >
-      {% set state = states(ac_entity) %}
-      {% set temp = state_attr(ac_entity, 'temperature') | float(100) %}
-      {{ not (state == 'off' or temp >= comfort_temp_threshold) }}
-    then:
-      # When in comfort mode, only perform auto turn-off when room is sufficiently cooled
-      # (2°C below target temperature)
-      - alias: "Check if room has cooled 2°C below target in comfort mode"
-        choose:
-          - conditions:
-              - condition: template
-                value_template: >
-                  {% set current_temp = state_attr(ac_entity, 'current_temperature') | float(0) %}
-                  {% set target_temp = state_attr(ac_entity, 'temperature') | float(0) %}
-                  {% set state = states(ac_entity) %}
-                  {{ state != 'off' and current_temp <= (target_temp - 2) }}
-            sequence:
-              - service: climate.turn_off
-                target:
-                  entity_id: !input ac_entity
-              - service: persistent_notification.create
-                data:
-                  title: "AC Auto-Off"
-                  message: "Room temperature is now 2°C below your set temperature. AC turned off to save energy."
-                  notification_id: auto_off_notification
-      - stop: true
-    else:
-      # Anti-Melt Mode Logic
-      - alias: "Execute Anti-Melt Mode Logic"
-        choose:
-          # Turn ON AC sequence - activates when temp is above anti-melt threshold and AC is off
-          - conditions:
-              - condition: template
-                value_template: "{{ state_attr(ac_entity, 'current_temperature') | float(0) >= anti_melt_threshold | float }}"
-              - condition: state
-                entity_id: !input ac_entity
-                state: "off"
-            sequence:
-              - service: climate.set_temperature
-                target:
-                  entity_id: !input ac_entity
-                data:
-                  temperature: !input anti_melt_target
-              - service: climate.set_hvac_mode
-                target:
-                  entity_id: !input ac_entity
-                data:
-                  hvac_mode: !input ac_mode
-              - service: climate.set_fan_mode
-                target:
-                  entity_id: !input ac_entity
-                data:
-                  fan_mode: !input fan_mode
-              - service: persistent_notification.create
-                data:
-                  title: "Anti-Melt Mode Activated"
-                  message: "Room temperature reached {{ anti_melt_threshold }}°C. AC turned on to prevent overheating."
-                  notification_id: anti_melt_notification
-          
-          # Turn OFF AC sequence - activates when in anti-melt mode and temp drops below target by 2°C
-          - conditions:
-              - condition: template
-                value_template: >
-                  {% set current_temp = state_attr(ac_entity, 'current_temperature') | float(0) %}
-                  {% set anti_melt_minus_2 = anti_melt_target | float - 2 %}
-                  {{ current_temp <= anti_melt_minus_2 }}
-              - condition: template
-                value_template: >
-                  {% set state = states(ac_entity) %}
-                  {% set temp = state_attr(ac_entity, 'temperature') | float(0) %}
-                  {{ state != 'off' and temp >= comfort_temp_threshold }}
-            sequence:
-              - service: climate.turn_off
-                target:
-                  entity_id: !input ac_entity
-              - service: persistent_notification.create
-                data:
-                  title: "Anti-Melt Mode Deactivated"
-                  message: "Room temperature dropped to {{ anti_melt_target | float - 2 }}°C (2°C below target). AC turned off."
-                  notification_id: anti_melt_notification
+  # Use choose/conditions/sequence structure for proper conditional logic
+  - choose:
+      # COMFORT MODE LOGIC: Check if in comfort mode (manually set to cool temperature)
+      - conditions:
+          - condition: template
+            value_template: >
+              {% set state = states(ac_entity) %}
+              {% set temp = state_attr(ac_entity, 'temperature') | float(100) %}
+              {{ state != 'off' and temp < comfort_temp_threshold }}
+        sequence:
+          # In comfort mode, only check if we should turn off (2°C below target)
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {% set current_temp = state_attr(ac_entity, 'current_temperature') | float(0) %}
+                      {% set target_temp = state_attr(ac_entity, 'temperature') | float(0) %}
+                      {{ current_temp <= (target_temp - 2) }}
+                sequence:
+                  - service: climate.turn_off
+                    target:
+                      entity_id: !input ac_entity
+                  - service: persistent_notification.create
+                    data:
+                      title: "AC Auto-Off"
+                      message: "Room temperature is now 2°C below your set temperature. AC turned off to save energy."
+                      notification_id: auto_off_notification
+          - stop: true  # Stop processing if in comfort mode
+
+      # ANTI-MELT MODE LOGIC: When temp is high, turn on AC
+      - conditions:
+          - condition: template
+            value_template: "{{ state_attr(ac_entity, 'current_temperature') | float(0) >= anti_melt_threshold | float }}"
+          - condition: state
+            entity_id: !input ac_entity
+            state: "off"
+        sequence:
+          - service: climate.set_temperature
+            target:
+              entity_id: !input ac_entity
+            data:
+              temperature: !input anti_melt_target
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: !input ac_entity
+            data:
+              hvac_mode: !input ac_mode
+          - service: climate.set_fan_mode
+            target:
+              entity_id: !input ac_entity
+            data:
+              fan_mode: !input fan_mode
+          - service: persistent_notification.create
+            data:
+              title: "Anti-Melt Mode Activated"
+              message: "Room temperature reached {{ anti_melt_threshold }}°C. AC turned on to prevent overheating."
+              notification_id: anti_melt_notification
+      
+      # AUTO-OFF LOGIC: Turn off AC when temperature drops 2°C below target in Anti-Melt mode
+      - conditions:
+          - condition: template
+            value_template: >
+              {% set current_temp = state_attr(ac_entity, 'current_temperature') | float(0) %}
+              {% set anti_melt_minus_2 = anti_melt_target | float - 2 %}
+              {{ current_temp <= anti_melt_minus_2 }}
+          - condition: template
+            value_template: >
+              {% set state = states(ac_entity) %}
+              {% set temp = state_attr(ac_entity, 'temperature') | float(0) %}
+              {{ state != 'off' and temp >= comfort_temp_threshold }}
+        sequence:
+          - service: climate.turn_off
+            target:
+              entity_id: !input ac_entity
+          - service: persistent_notification.create
+            data:
+              title: "Anti-Melt Mode Deactivated"
+              message: "Room temperature dropped to {{ anti_melt_target | float - 2 }}°C (2°C below target). AC turned off."
+              notification_id: anti_melt_notification
