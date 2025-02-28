@@ -1,0 +1,150 @@
+blueprint:
+  name: Temperature-Based AC Control
+  description: Automatically turn on or off an air conditioner based on temperature thresholds
+  domain: automation
+  input:
+    ac_entity:
+      name: Air Conditioner
+      description: The air conditioner entity to control
+      selector:
+        entity:
+          domain: climate
+      default: climate.back-lounge-ac
+    temp_sensor:
+      name: Temperature Sensor
+      description: The temperature sensor to monitor (leave empty to use AC's internal sensor)
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+      default: ""
+    high_temp_threshold:
+      name: High Temperature Threshold
+      description: Turn on AC when temperature reaches or exceeds this value
+      selector:
+        number:
+          min: 17
+          max: 30
+          step: 0.5
+          unit_of_measurement: °C
+      default: 25
+    low_temp_threshold:
+      name: Low Temperature Threshold
+      description: Turn off AC when temperature drops to or below this value
+      selector:
+        number:
+          min: 17
+          max: 30
+          step: 0.5
+          unit_of_measurement: °C
+      default: 22
+    target_temperature:
+      name: Target Temperature
+      description: Temperature to set when turning on the AC
+      selector:
+        number:
+          min: 17
+          max: 30
+          step: 0.5
+          unit_of_measurement: °C
+      default: 22
+    ac_mode:
+      name: AC Mode
+      description: Mode to set when turning on the AC
+      selector:
+        select:
+          options:
+            - cool
+            - heat
+            - heat_cool
+            - fan_only
+            - dry
+      default: cool
+    fan_mode:
+      name: Fan Mode
+      description: Fan mode to set when turning on the AC
+      selector:
+        select:
+          options:
+            - auto
+            - low
+            - medium
+            - high
+            - silent
+            - turbo
+      default: auto
+
+# Set the mode to avoid running multiple instances simultaneously
+mode: restart
+
+# Set the trigger to run when Home Assistant starts or when relevant entities change
+trigger:
+  - platform: homeassistant
+    event: start
+  - platform: state
+    entity_id: !input temp_sensor
+  - platform: state
+    entity_id: !input ac_entity
+  - platform: state
+    entity_id: !input ac_entity
+    attribute: current_temperature
+
+# Variables for the automation
+variables:
+  ac_entity: !input ac_entity
+  temp_entity: !input temp_sensor
+  use_internal_sensor: "{{ !temp_entity }}"
+  
+  # Get the current temperature based on sensor selection
+  current_temp: >
+    {% if use_internal_sensor %}
+      {{ state_attr(ac_entity, 'current_temperature') | float(0) }}
+    {% else %}
+      {{ states(temp_entity) | float(0) }}
+    {% endif %}
+
+# Main action sequence
+action:
+  # Check if temperature is above high threshold and AC is off
+  - if:
+      condition: and
+      conditions:
+        - condition: template
+          value_template: "{{ current_temp >= high_temp_threshold }}"
+        - condition: state
+          entity_id: !input ac_entity
+          state: 'off'
+    then:
+      # Turn on AC
+      - service: climate.set_temperature
+        target:
+          entity_id: !input ac_entity
+        data:
+          temperature: !input target_temperature
+      - service: climate.set_hvac_mode
+        target:
+          entity_id: !input ac_entity
+        data:
+          hvac_mode: !input ac_mode
+      - service: climate.set_fan_mode
+        target:
+          entity_id: !input ac_entity
+        data:
+          fan_mode: !input fan_mode
+  
+  # Check if temperature is below low threshold and AC is on
+  - if:
+      condition: and
+      conditions:
+        - condition: template
+          value_template: "{{ current_temp <= low_temp_threshold }}"
+        - condition: not
+          conditions:
+            - condition: state
+              entity_id: !input ac_entity
+              state: 'off'
+    then:
+      # Turn off AC
+      - service: climate.turn_off
+        target:
+          entity_id: !input ac_entity
