@@ -1,5 +1,5 @@
 blueprint:
-  name: "AC Anti-Melt Mode with Manual Override"
+  name: "Anti-Melt Mode with Manual Override"
   description: "Prevents room from overheating when unoccupied while respecting manual AC settings when in use"
   domain: automation
   input:
@@ -9,7 +9,7 @@ blueprint:
       selector:
         entity:
           domain: climate
-      default: climate.back-lounge-ac
+      required: true
     anti_melt_threshold:
       name: "Anti-Melt Threshold"
       description: "Temperature at which Anti-Melt Mode activates"
